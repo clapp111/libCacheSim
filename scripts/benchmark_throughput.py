@@ -66,24 +66,30 @@ def parse_perf_stat(perf_stat_output: str) -> Dict[str, float]:
         "throughput": r"throughput\s+([\d\.]+)\s+MQPS",
         "context_switches": r"([\d\.]+)\s+context-switches",
         "cpu_migrations": r"([\d\.]+)\s+cpu-migrations",
-        "cpu_cycles": r"([\d\.]+)\s+cycles",
-        "instructions": r"([\d\.]+)\s+instructions",
-        "ipc": r"([\d\.]+)\s+insn per cycle",
+        "cpu_cycles": r"([\d,\.]+)\s+cpu_core/cpu-cycles/",
+        "instructions": r"([\d,\.]+)\s+cpu_core/instructions/",
+        "req_cnt": r"([\d]+)\s+req,",
         "elapsed_time_sec": r"([\d\.]+)\s+seconds time elapsed",
         "user_time_sec": r"([\d\.]+)\s+seconds user",
         "sys_time_sec": r"([\d\.]+)\s+seconds sys"
     }
-    
+
     perf_data = {}
 
     for key, regex in metrics_regex.items():
         match = re.search(regex, perf_stat_output)
         if match:
+            value_str = (match.group(2) if len(match.groups()) > 1 else match.group(1)).replace(",", "")
             try:
-                perf_data[key] = float(match.group(2) if len(match.groups()) > 1 else match.group(1))
+                perf_data[key] = float(value_str)
             except ValueError:
                 logger.warning(f"Failed to convert {key} to float")
-                pass 
+                pass
+
+    if perf_data.get("cpu_cycles"):
+        perf_data["ipc"] = perf_data.get("instructions", 0.0) / perf_data["cpu_cycles"]
+    if perf_data.get("req_cnt"):
+        perf_data["cpr"] = perf_data["cpu_cycles"] / perf_data["req_cnt"]
 
     return perf_data
     
@@ -119,22 +125,27 @@ def run_cachesim(trace: str, algo: str, cache_size: str, ignore_obj_size: bool, 
 
 
 def generate_summary(results):
-    summary_file = "result/throughput_log.csv"
-    os.makedirs("result", exist_ok=True)
-    
+    summary_file = "result/throughput/throughput_log.csv"
+    os.makedirs("result/throughput", exist_ok=True)
+
     df = pd.DataFrame(results)
     # algo and cache size should be 1st and 2nd columns
     column_order = ['algo', 'cache_size'] + [a for a in df.columns if a not in ['algo', 'cache_size']]
     df = df.reindex(columns=column_order)
+
+    # append to any existing log instead of overwriting it, so results from
+    # separate runs (e.g. adding one more algo later) accumulate
+    if os.path.exists(summary_file):
+        df = pd.concat([pd.read_csv(summary_file), df], ignore_index=True)
     df.to_csv(summary_file, index=False)
     logger.info(f"Summary saved to {summary_file}")
-    
+
     logger.info("Averaging out across all trace")
     df = df.drop(columns=['trace'])
     avg_df = df.groupby(['algo', 'cache_size']).mean().reset_index()
-    avg_df.to_csv("result/throughput_avg.csv", index=False)
+    avg_df.to_csv("result/throughput/throughput_avg.csv", index=False)
 
-    logger.info(f"Average summary saved to result/throughput_avg.csv")
+    logger.info(f"Average summary saved to result/throughput/throughput_avg.csv")
     
         
 def main():
