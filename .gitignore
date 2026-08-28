@@ -22,3 +22,9 @@ sftp-config.json
 .lint-logs/
 # Python wheels
 *.whl
+
+figure/
+.venv/
+paper_notes/
+CLAUDE.md
+AGENTS.md
