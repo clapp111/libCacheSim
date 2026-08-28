@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
 example usage
-for i in 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6; do 
-    python3 data_gen.py -m 1000000 -n 100000000 --alpha $i > /disk/data/zipf_${i}_1_100.txt & 
+for i in 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6; do
+    python3 data_gen.py -m 1000000 -n 100000000 --alpha $i > /disk/data/zipf_${i}_1_100.txt &
 done
 
-for i in 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6; do 
-    python3 data_gen.py -m 10000000 -n 100000000 --alpha $i --bin-output /disk/data/zipf_${i}_10_100.oracleGeneral & 
+for i in 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6; do
+    python3 data_gen.py -m 10000000 -n 100000000 --alpha $i --bin-output /disk/data/zipf_${i}_10_100.oracleGeneral &
 done
 
+# abrupt working-set change: warm up on object range [0, m), then shift to a
+# disjoint range [shift-start, shift-start+m)
+python3 data_gen.py -m 10000 -n 50000 --shift-n 65000 > shift.txt
 
 """
 
@@ -73,6 +76,31 @@ def gen_uniform(m: int, n: int, start: int = 0) -> np.ndarray:
     return np.random.uniform(0, m, n).astype(int) + start
 
 
+s = struct.Struct("<IQIq")
+
+
+def write_zipf_trace(m, alpha, n, start, output_file, obj_size, time_span, i0, n_total):
+    """write n zipf-distributed requests over obj_id range [start, start + m)
+
+    i0/n_total only affect the timestamp spacing used in --bin-output mode;
+    txt (stdout) output ignores them.
+    """
+    batch_size = 1000000
+    remaining = n
+    i = i0
+    while remaining > 0:
+        this_batch = min(batch_size, remaining)
+        for obj in gen_zipf(m, alpha, this_batch, start=start):
+            i += 1
+            ts = i * time_span // n_total
+            if output_file:
+                output_file.write(s.pack(ts, obj, obj_size, -2))
+            else:
+                print(obj)
+        remaining -= this_batch
+    return i
+
+
 if __name__ == "__main__":
     from argparse import ArgumentParser
     ap = ArgumentParser()
@@ -82,6 +110,7 @@ if __name__ == "__main__":
                     default=100000000,
                     help="Number of requests")
     ap.add_argument("--alpha", type=float, default=1.0, help="Zipf parameter")
+    ap.add_argument("--start", type=int, default=0, help="Starting obj_id")
     ap.add_argument("--bin-output",
                     type=str,
                     default="",
@@ -94,19 +123,33 @@ if __name__ == "__main__":
                     type=int,
                     default=86400 * 7,
                     help="Time span of all requests in seconds")
+    ap.add_argument("--shift-n",
+                    type=int,
+                    default=0,
+                    help="If set, append this many requests from a second, "
+                         "disjoint Zipf phase after the first -- simulates "
+                         "an abrupt working-set change")
+    ap.add_argument("--shift-start",
+                    type=int,
+                    default=10_000_000,
+                    help="Starting obj_id for the --shift-n phase; must not "
+                         "overlap [--start, --start + m)")
+    ap.add_argument("--seed",
+                    type=int,
+                    default=None,
+                    help="Seed numpy's RNG for reproducible output "
+                         "(default: unseeded/random)")
 
     p = ap.parse_args()
 
-    output_file = open(p.bin_output, "wb") if p.bin_output != "" else None
-    s = struct.Struct("<IQIq")
+    if p.seed is not None:
+        np.random.seed(p.seed)
 
-    batch_size = 1000000
-    i = 0
-    for n_batch in range((p.n - 1) // batch_size + 1):
-        for obj in gen_zipf(p.m, p.alpha, batch_size):
-            i += 1
-            ts = i * p.time_span // p.n
-            if output_file:
-                output_file.write(s.pack(ts, obj, p.obj_size, -2))
-            else:
-                print(obj)
+    output_file = open(p.bin_output, "wb") if p.bin_output != "" else None
+
+    n_total = p.n + p.shift_n
+    i = write_zipf_trace(p.m, p.alpha, p.n, p.start, output_file, p.obj_size,
+                          p.time_span, 0, n_total)
+    if p.shift_n > 0:
+        write_zipf_trace(p.m, p.alpha, p.shift_n, p.shift_start, output_file,
+                          p.obj_size, p.time_span, i, n_total)
