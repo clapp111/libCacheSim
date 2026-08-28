@@ -62,6 +62,22 @@ typedef int64_t (*cache_get_occupied_byte_func_ptr)(const cache_t *);
 
 typedef int64_t (*cache_get_n_obj_func_ptr)(const cache_t *);
 
+/* read-only introspection: predicate over a resident object */
+typedef bool (*cache_obj_filter_func_ptr)(const cache_obj_t *obj, void *ctx);
+
+/* read-only introspection: count resident objects the algorithm considers
+ * protected; if filter is NULL, count all protected objects */
+typedef int64_t (*cache_get_n_protected_func_ptr)(
+    const cache_t *cache, cache_obj_filter_func_ptr filter, void *filter_ctx);
+
+/* read-only introspection for hand-sweep algorithms: cumulative counts of
+ * objects the hand demoted while searching for a victim (n_demote) and of
+ * evictions (n_evict). Their ratio is how far the hand advances per
+ * eviction beyond the victim itself. */
+typedef void (*cache_get_sweep_stats_func_ptr)(const cache_t *cache,
+                                               int64_t *n_demote,
+                                               int64_t *n_evict);
+
 typedef void (*cache_print_cache_func_ptr)(const cache_t *);
 
 // #define EVICTION_AGE_ARRAY_SZE 40
@@ -107,6 +123,10 @@ struct cache {
   cache_to_evict_func_ptr to_evict;
   cache_get_occupied_byte_func_ptr get_occupied_byte;
   cache_get_n_obj_func_ptr get_n_obj;
+  /* optional, NULL if the algorithm has no notion of protected objects */
+  cache_get_n_protected_func_ptr get_n_protected;
+  /* optional, NULL if the algorithm has no hand sweep */
+  cache_get_sweep_stats_func_ptr get_sweep_stats;
   cache_print_cache_func_ptr print_cache;
 
   admissioner_t *admissioner;

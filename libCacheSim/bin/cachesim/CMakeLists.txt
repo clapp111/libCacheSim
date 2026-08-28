@@ -12,3 +12,7 @@ add_executable(cachesim ${cachesim_sources_c})
 target_include_directories(cachesim PRIVATE ${libCacheSim_include_dir} ${GLib_INCLUDE_DIRS} ../)
 target_link_libraries(cachesim ${PROJECT_NAME})
 install(TARGETS cachesim RUNTIME DESTINATION bin)
+
+add_executable(scanTimeline scan_timeline.c)
+target_include_directories(scanTimeline PRIVATE ${libCacheSim_include_dir} ${GLib_INCLUDE_DIRS} ../)
+target_link_libraries(scanTimeline ${PROJECT_NAME})
