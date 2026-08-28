@@ -14,6 +14,8 @@
 //  Created by Ziyue on 14/1/2023.
 //
 
+#include <math.h>
+
 #include "dataStructure/hashtable/hashtable.h"
 #include "dataStructure/minimalIncrementCBF.h"
 #include "libCacheSim/evictionAlgo.h"
@@ -58,6 +60,7 @@ static void WTinyLFU_evict(cache_t *cache, const request_t *req);
 static bool WTinyLFU_remove(cache_t *cache, obj_id_t obj_id);
 static void WTinyLFU_parse_params(cache_t *cache,
                                   const char *cache_specific_params);
+static void WTinyLFU_try_init_CBF(cache_t *cache);
 
 bool WTinyLFU_can_insert(cache_t *cache, const request_t *req);
 static int64_t WTinyLFU_get_occupied_byte(const cache_t *cache);
@@ -157,17 +160,10 @@ cache_t *WTinyLFU_init(const common_cache_params_t ccache_params,
       (struct minimalIncrementCBF *)malloc(sizeof(struct minimalIncrementCBF));
   DEBUG_ASSERT(params->CBF != NULL);
   params->CBF->ready = 0;
-
-  // TODO @ Ziyue: how to set entries and error rate?
-  int ret = minimalIncrementCBF_init(params->CBF,
-                                     params->main_cache->cache_size, 0.001);
-  if (ret != 0) {
-    ERROR("CBF init failed\n");
-  }
-
-#ifdef DEBUG_MODE
-  minimalIncrementCBF_print(params->CBF);
-#endif
+  // CBF sizing needs entries = expected object count, but at init time we
+  // only know main_cache->cache_size in bytes, so init is deferred until
+  // main_cache first has no room for an incoming object and an avg obj
+  // size can be observed -- see WTinyLFU_try_init_CBF.
 
   params->request_counter = 0;  // initialize request counter
 
@@ -196,6 +192,39 @@ static void WTinyLFU_free(cache_t *cache) {
   cache_struct_free(cache);
 }
 
+/**
+ * @brief lazily size and allocate the CBF, using the avg obj size observed
+ * in main_cache to convert cache_size (bytes) into an object-count entries
+ * estimate; a no-op once the CBF is ready. Must only be called once
+ * main_cache has actually run out of room for an incoming object -- object
+ * sizes rarely divide cache_size evenly, so occupied_byte alone never
+ * reliably reaches cache_size exactly (see WTinyLFU_evict, the only caller)
+ *
+ * @param cache
+ */
+static void WTinyLFU_try_init_CBF(cache_t *cache) {
+  WTinyLFU_params_t *params = (WTinyLFU_params_t *)(cache->eviction_params);
+  cache_t *main_cache = params->main_cache;
+
+  if (params->CBF->ready) {
+    return;
+  }
+
+  double avg_obj_size = (double)main_cache->get_occupied_byte(main_cache) /
+                        (double)main_cache->get_n_obj(main_cache);
+  int entries =
+      (int)fmax(1000, (double)main_cache->cache_size / avg_obj_size);
+
+  int ret = minimalIncrementCBF_init(params->CBF, entries, 0.001);
+  if (ret != 0) {
+    ERROR("CBF init failed\n");
+  }
+
+#ifdef DEBUG_MODE
+  minimalIncrementCBF_print(params->CBF);
+#endif
+}
+
 static bool WTinyLFU_get(cache_t *cache, const request_t *req) {
   /* because this field cannot be updated in time since segment LRUs are
    * updated, so we should not use this field */
@@ -221,7 +250,7 @@ static cache_obj_t *WTinyLFU_find(cache_t *cache, const request_t *req,
     return obj;
   }
 
-  if (obj_main != NULL) {
+  if (obj_main != NULL && params->CBF->ready) {
     // frequency update
     minimalIncrementCBF_add(params->CBF, (void *)&req->obj_id,
                             sizeof(obj_id_t));
@@ -242,7 +271,10 @@ cache_obj_t *WTinyLFU_insert(cache_t *cache, const request_t *req) {
   cache_obj_t *obj = NULL;
   obj = params->LRU->insert(params->LRU, req);
 
-  minimalIncrementCBF_add(params->CBF, (void *)&req->obj_id, sizeof(obj_id_t));
+  if (params->CBF->ready) {
+    minimalIncrementCBF_add(params->CBF, (void *)&req->obj_id,
+                            sizeof(obj_id_t));
+  }
 
 #if defined(TRACK_DEMOTION)
   obj->create_time = cache->n_req;
@@ -289,16 +321,26 @@ static void WTinyLFU_evict(cache_t *cache, const request_t *req) {
         window->remove(window, window_victim->obj_id);
 
       } else {
+        // main_cache has no room for the incoming object -- this is the
+        // first point where entries can be estimated reliably, see
+        // WTinyLFU_try_init_CBF
+        WTinyLFU_try_init_CBF(cache);
+
         // compare the frequency of window_victim and main_cache_victim
         cache_obj_t *main_cache_victim = main_cache->to_evict(main_cache, req);
         DEBUG_ASSERT(main_cache_victim != NULL);
         // if window_victim is more frequent, insert it into main_cache
-        if (minimalIncrementCBF_estimate(params->CBF,
+        // (before the CBF is ready, default to demoting the window victim,
+        // i.e. treat frequencies as tied -- see WTinyLFU_try_init_CBF)
+        bool window_victim_more_frequent =
+            params->CBF->ready &&
+            minimalIncrementCBF_estimate(params->CBF,
                                          (void *)&window_victim->obj_id,
                                          sizeof(window_victim->obj_id)) >
-            minimalIncrementCBF_estimate(params->CBF,
-                                         (void *)&main_cache_victim->obj_id,
-                                         sizeof(main_cache_victim->obj_id))) {
+                minimalIncrementCBF_estimate(
+                    params->CBF, (void *)&main_cache_victim->obj_id,
+                    sizeof(main_cache_victim->obj_id));
+        if (window_victim_more_frequent) {
 #if defined(TRACK_DEMOTION)
           printf("%ld keep %ld %ld\n", cache->n_req, window_victim->create_time,
                  window_victim->next_access_vtime);
@@ -325,8 +367,11 @@ static void WTinyLFU_evict(cache_t *cache, const request_t *req) {
         }
       }
       // TODO @ Ziyue: add doorkeeper
-      minimalIncrementCBF_add(params->CBF, (void *)(&params->req_local->obj_id),
-                              sizeof(obj_id_t));
+      if (params->CBF->ready) {
+        minimalIncrementCBF_add(params->CBF,
+                                (void *)(&params->req_local->obj_id),
+                                sizeof(obj_id_t));
+      }
     } else {
       DEBUG_ASSERT(window->get_occupied_byte(window) == 0);
       main_cache->evict(main_cache, req);
