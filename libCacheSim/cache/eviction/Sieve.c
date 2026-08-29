@@ -12,10 +12,6 @@ typedef struct {
   cache_obj_t *q_tail;
 
   cache_obj_t *pointer;
-
-  /* hand-sweep instrumentation; see cache_get_sweep_stats_func_ptr */
-  int64_t n_demote;
-  int64_t n_evict;
 } Sieve_params_t;
 
 // ***********************************************************************
@@ -31,11 +27,6 @@ static cache_obj_t *Sieve_insert(cache_t *cache, const request_t *req);
 static cache_obj_t *Sieve_to_evict(cache_t *cache, const request_t *req);
 static void Sieve_evict(cache_t *cache, const request_t *req);
 static bool Sieve_remove(cache_t *cache, obj_id_t obj_id);
-static int64_t Sieve_get_n_protected(const cache_t *cache,
-                                     cache_obj_filter_func_ptr filter,
-                                     void *filter_ctx);
-static void Sieve_get_sweep_stats(const cache_t *cache, int64_t *n_demote,
-                                  int64_t *n_evict);
 
 // ***********************************************************************
 // ****                                                               ****
@@ -63,8 +54,6 @@ cache_t *Sieve_init(const common_cache_params_t ccache_params,
   cache->evict = Sieve_evict;
   cache->remove = Sieve_remove;
   cache->to_evict = Sieve_to_evict;
-  cache->get_n_protected = Sieve_get_n_protected;
-  cache->get_sweep_stats = Sieve_get_sweep_stats;
 
   if (ccache_params.consider_obj_metadata) {
     cache->obj_md_size = 1;
@@ -234,10 +223,8 @@ static void Sieve_evict(cache_t *cache, const request_t *req) {
 
   while (obj->sieve.freq > 0) {
     obj->sieve.freq -= 1;
-    params->n_demote++;
     obj = obj->queue.prev == NULL ? params->q_tail : obj->queue.prev;
   }
-  params->n_evict++;
 
   params->pointer = obj->queue.prev;
   remove_obj_from_list(&params->q_head, &params->q_tail, obj);
@@ -276,41 +263,6 @@ static bool Sieve_remove(cache_t *cache, obj_id_t obj_id) {
   Sieve_remove_obj(cache, obj);
 
   return true;
-}
-
-/**
- * @brief count resident objects that Sieve protects from the hand,
- * i.e. objects whose freq has been set by a hit and not yet cleared
- * this is read-only and does not touch the hand or any metadata
- *
- * @param cache
- * @param filter if not NULL, only count protected objects passing the filter
- * @param filter_ctx passed through to filter
- * @return the number of protected objects
- */
-static int64_t Sieve_get_n_protected(const cache_t *cache,
-                                     cache_obj_filter_func_ptr filter,
-                                     void *filter_ctx) {
-  Sieve_params_t *params = cache->eviction_params;
-  int64_t n_protected = 0;
-
-  for (cache_obj_t *obj = params->q_head; obj != NULL; obj = obj->queue.next) {
-    if (obj->sieve.freq > 0 && (filter == NULL || filter(obj, filter_ctx))) {
-      n_protected++;
-    }
-  }
-
-  return n_protected;
-}
-
-/**
- * @brief cumulative hand-sweep counters, read-only
- */
-static void Sieve_get_sweep_stats(const cache_t *cache, int64_t *n_demote,
-                                  int64_t *n_evict) {
-  Sieve_params_t *params = cache->eviction_params;
-  *n_demote = params->n_demote;
-  *n_evict = params->n_evict;
 }
 
 static void Sieve_verify(cache_t *cache) {
