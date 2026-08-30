@@ -60,7 +60,7 @@ run_scenario() {
   if [ -f "$csv" ]; then
     existing=$(awk -F, 'NR>1{print $1}' "$csv" | sort -u)
   else
-    echo "algo,rep,window_idx,req_in_window,miss_in_window,miss_ratio,n_obj,n_protected,n_target_protected" > "$csv"
+    echo "algo,rep,window_idx,req_in_window,miss_in_window,miss_ratio,n_obj,n_protected,n_target_protected,n_demote,n_evict,n_hand_wrap" > "$csv"
     existing=""
   fi
 
@@ -93,10 +93,10 @@ run_scenario() {
       algo=$(cut -d'|' -f2 <<< "$cfg")
       params=${cfg##*|}
       "$SCAN_TIMELINE" "$trace" txt "$algo" "$TIMELINE_CACHE" "$WINDOW" \
-        "$params" "$target_range" 2>/dev/null \
+        "$params" "$target_range" sweep 2>/dev/null \
         | tail -n +2 \
         | awk -F, -v OFS=, -v rep="$rep" -v label="$label" \
-              '{print label, rep, $2, $3, $4, $5, $6, $7, $8}' \
+              '{print label, rep, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11}' \
         >> "$csv"
     done
     echo "  variants: rep $rep/$N_REPS done"
