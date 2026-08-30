@@ -42,7 +42,6 @@ WINDOW=100                      # (2*N_PHASE)/WINDOW = 4000 windows; shift lands
 # baseline. Running each config as its own process also sidesteps
 # Ghat_PROTECT_THRESHOLD being a file-static global rather than per-instance.
 CONFIGS=(
-  "Sieve|Sieve|"
   "Ghat-g1-t1|Ghat|protect-threshold=1"
   "Ghat-g1-t2|Ghat|protect-threshold=2"
   "Ghat-g0-t2|Ghat|protect-threshold=2,ghost-count-ratio=0"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Mechanism figure for the abrupt shift: the windowed object miss ratio
-around the shift, for SIEVE and the two tau=2 cells of the 2x2.
+around the shift, for the SIEVE-equivalent cell and the two tau=2 cells.
 
 The protected-object trajectory that used to be panel (a) is intentionally
 omitted here. This script renders only the miss-ratio trajectory; protected-
@@ -37,19 +37,18 @@ WINDOW_HI = 2020
 
 # tau is held at 2 and Ghost is the axis that varies, which is what this
 # section argues about; the tau sweep is a separate experiment on real
-# traces. Ghat-g0-t1 is absent because it is bit-for-bit identical to Sieve,
-# and Ghat-g1-t1 because varying two axes at once is the other section's
+# traces. Ghat-g0-t1 is the bit-for-bit SIEVE-equivalent baseline;
+# Ghat-g1-t1 is absent because varying two axes at once is the other section's
 # question. Order sets legend order.
-PLOT_ALGOS = ["Ghat-g1-t2", "Sieve", "Ghat-g0-t2"]
+PLOT_ALGOS = ["Ghat-g0-t1", "Ghat-g0-t2", "Ghat-g1-t2"]
 
 # Paper-facing display names -- same mapping as plot_shift_recovery.py.
-# Ghat-g0-t1 is bit-for-bit identical to Sieve, so it is named as the
-# ghost-off/tau=1 corner of the factorial rather than as its own policy.
+# Ghat-g0-t1 is bit-for-bit identical to Sieve for policy behavior, but the
+# label keeps clear that the diagnostic data comes from the Ghat code path.
 DISPLAY_NAME = {
-    "Sieve": "SIEVE",
-    "Cacheus": "CACHEUS",
-    "Ghat-g1-t2": "Ghat(ghost=on, τ=2)",
-    "Ghat-g0-t2": "Ghat(ghost=off, τ=2)",
+    "Ghat-g0-t1": "SIEVE-equivalent",
+    "Ghat-g1-t2": "Ghat",
+    "Ghat-g0-t2": "Ghat(ghost=off)",
 }
 
 # Three-series palette validated pairwise for color-vision deficiencies and
@@ -57,7 +56,7 @@ DISPLAY_NAME = {
 ALGO_COLOR = {
     "Ghat-g1-t2": "#4a3aa7",
     "Ghat-g0-t2": "#2a78d6",
-    "Sieve": "#eb6834",
+    "Ghat-g0-t1": "#eb6834",
 }
 
 LINE_WIDTH = 1.4
