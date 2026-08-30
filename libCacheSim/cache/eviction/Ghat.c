@@ -53,6 +53,7 @@ typedef struct {
   /* hand-sweep instrumentation; see cache_get_sweep_stats_func_ptr */
   int64_t n_demote;
   int64_t n_evict;
+  int64_t n_hand_wrap;
 } Ghat_params_t;
 
 static const char *DEFAULT_CACHE_PARAMS = "ghost-count-ratio=1.0";
@@ -74,6 +75,8 @@ static void          Ghat_evict(cache_t *cache, const request_t *req);
 static bool          Ghat_remove(cache_t *cache, obj_id_t obj_id);
 static void          Ghat_get_sweep_stats(const cache_t *cache,
                                           int64_t *n_demote, int64_t *n_evict);
+static int64_t       Ghat_get_n_hand_wrap(const cache_t *cache);
+static int64_t       Ghat_get_hand_distance(const cache_t *cache);
 static int64_t       Ghat_get_n_protected(const cache_t *cache,
                                           cache_obj_filter_func_ptr filter,
                                           void *filter_ctx);
@@ -234,6 +237,8 @@ cache_t *Ghat_init(const common_cache_params_t ccache_params,
   cache->to_evict   = Ghat_to_evict;
   cache->get_n_protected = Ghat_get_n_protected;
   cache->get_sweep_stats = Ghat_get_sweep_stats;
+  cache->get_n_hand_wrap = Ghat_get_n_hand_wrap;
+  cache->get_hand_distance = Ghat_get_hand_distance;
 
   if (ccache_params.consider_obj_metadata) {
     cache->obj_md_size = 1;
@@ -364,9 +369,19 @@ static void Ghat_evict(cache_t *cache, const request_t *req) {
   while (obj->sieve.freq >= Ghat_PROTECT_THRESHOLD) {
     obj->sieve.freq = 0;
     params->n_demote++;
-    obj = obj->queue.prev == NULL ? params->q_tail : obj->queue.prev;
+    if (obj->queue.prev == NULL) {
+      params->n_hand_wrap++;
+      obj = params->q_tail;
+    } else {
+      obj = obj->queue.prev;
+    }
   }
   params->n_evict++;
+  // Reaching an unprotected queue head also completes a lap. The next
+  // eviction starts from the tail because pointer becomes NULL.
+  if (obj->queue.prev == NULL && obj != params->q_tail) {
+    params->n_hand_wrap++;
+  }
 
   params->pointer = obj->queue.prev;
   remove_obj_from_list(&params->q_head, &params->q_tail, obj);
@@ -432,6 +447,30 @@ static void Ghat_get_sweep_stats(const cache_t *cache, int64_t *n_demote,
   Ghat_params_t *params = (Ghat_params_t *)cache->eviction_params;
   *n_demote = params->n_demote;
   *n_evict = params->n_evict;
+}
+
+// Cumulative completed hand laps, read-only. A lap is counted when the hand
+// processes the queue head and its next logical position is the queue tail.
+static int64_t Ghat_get_n_hand_wrap(const cache_t *cache) {
+  Ghat_params_t *params = (Ghat_params_t *)cache->eviction_params;
+  return params->n_hand_wrap;
+}
+
+// Current number of queue links from the next hand position to the queue head.
+// A NULL pointer means that the next eviction starts from the queue tail.
+static int64_t Ghat_get_hand_distance(const cache_t *cache) {
+  Ghat_params_t *params = (Ghat_params_t *)cache->eviction_params;
+  cache_obj_t *obj = params->pointer == NULL ? params->q_tail : params->pointer;
+  int64_t distance = 0;
+
+  if (obj == NULL) return -1;
+
+  while (obj != params->q_head) {
+    obj = obj->queue.prev;
+    distance++;
+  }
+
+  return distance;
 }
 
 static void Ghat_parse_params(cache_t *cache,

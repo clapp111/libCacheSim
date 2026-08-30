@@ -42,7 +42,8 @@ static void print_window(const char *algo, int64_t window_idx, int64_t win_req,
   }
 
   if (sweep_delta != NULL) {
-    printf(",%ld,%ld", (long)sweep_delta[0], (long)sweep_delta[1]);
+    printf(",%ld,%ld,%ld,%ld", (long)sweep_delta[0], (long)sweep_delta[1],
+           (long)sweep_delta[2], (long)cache->get_hand_distance(cache));
   }
 
   printf("\n");
@@ -54,12 +55,13 @@ static void update_sweep_delta(const cache_t *cache, bool want_sweep,
   if (!want_sweep) {
     return;
   }
-  int64_t now[2];
+  int64_t now[3];
   cache->get_sweep_stats(cache, &now[0], &now[1]);
-  delta[0] = now[0] - prev[0];
-  delta[1] = now[1] - prev[1];
-  prev[0] = now[0];
-  prev[1] = now[1];
+  now[2] = cache->get_n_hand_wrap(cache);
+  for (int i = 0; i < 3; i++) {
+    delta[i] = now[i] - prev[i];
+    prev[i] = now[i];
+  }
 }
 
 /* Reports miss ratio per fixed-size request window, instead of a single
@@ -74,7 +76,8 @@ int main(int argc, char **argv) {
             "  target_id_range: lo:hi, half-open; adds the columns\n"
             "                   n_obj,n_protected,n_target_protected\n"
             "  sweep: literal \"sweep\"; adds per-window columns\n"
-            "         n_demote,n_evict (hand-sweep algorithms only)\n",
+            "         n_demote,n_evict,n_hand_wrap,hand_distance "
+            "(hand-sweep algorithms only)\n",
             argv[0]);
     return 1;
   }
@@ -124,7 +127,9 @@ int main(int argc, char **argv) {
   cache_t *cache =
       create_cache(trace_path, eviction_algo, cache_size, eviction_params, false);
 
-  if (want_sweep && cache->get_sweep_stats == NULL) {
+  if (want_sweep &&
+      (cache->get_sweep_stats == NULL || cache->get_n_hand_wrap == NULL ||
+       cache->get_hand_distance == NULL)) {
     fprintf(stderr, "%s has no hand sweep to report\n", eviction_algo);
     return 1;
   }
@@ -133,7 +138,7 @@ int main(int argc, char **argv) {
   int64_t win_req = 0, win_miss = 0, window_idx = 0;
   /* cumulative counters read straight off the cache; the CSV carries the
    * per-window delta so rows stay independent of where a run started */
-  int64_t prev_sweep[2] = {0, 0}, sweep_delta[2];
+  int64_t prev_sweep[3] = {0, 0, 0}, sweep_delta[3];
   int64_t *sweep_ptr = want_sweep ? sweep_delta : NULL;
 
   printf("algo,window_idx,req_in_window,miss_in_window,miss_ratio");
@@ -141,7 +146,7 @@ int main(int argc, char **argv) {
     printf(",n_obj,n_protected,n_target_protected");
   }
   if (want_sweep) {
-    printf(",n_demote,n_evict");
+    printf(",n_demote,n_evict,n_hand_wrap,hand_distance");
   }
   printf("\n");
 

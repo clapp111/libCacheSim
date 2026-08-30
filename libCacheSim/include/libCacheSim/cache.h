@@ -78,6 +78,12 @@ typedef void (*cache_get_sweep_stats_func_ptr)(const cache_t *cache,
                                                int64_t *n_demote,
                                                int64_t *n_evict);
 
+/* read-only introspection: cumulative number of times the hand crosses the
+ * queue-head boundary and continues from the queue tail */
+typedef int64_t (*cache_get_n_hand_wrap_func_ptr)(const cache_t *cache);
+
+typedef int64_t (*cache_get_hand_distance_func_ptr)(const cache_t *cache);
+
 typedef void (*cache_print_cache_func_ptr)(const cache_t *);
 
 // #define EVICTION_AGE_ARRAY_SZE 40
@@ -180,6 +186,10 @@ struct cache {
   int64_t future_stack_dist_array_size;
 
   int64_t log_eviction_age_cnt[EVICTION_AGE_ARRAY_SZE];
+
+  /* optional, NULL if the algorithm does not report completed hand laps */
+  cache_get_n_hand_wrap_func_ptr get_n_hand_wrap;
+  cache_get_hand_distance_func_ptr get_hand_distance;
 };
 
 static inline common_cache_params_t default_common_cache_params(void) {
