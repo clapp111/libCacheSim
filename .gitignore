@@ -28,3 +28,7 @@ figure/
 paper_notes/
 CLAUDE.md
 AGENTS.md
+
+# Real traces
+/data/*
+!/data/README.md
