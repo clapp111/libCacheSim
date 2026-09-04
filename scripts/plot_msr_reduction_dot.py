@@ -28,8 +28,9 @@ from result_utils import display_name, parse_result_file, resolve_family_files
 
 
 DISPLAY_NAME = {"Sieve": "SIEVE", "Cacheus": "CACHEUS", "Clock": "CLOCK"}
-# Ghat cache names encode protect threshold and ghost-count ratio.
-ALGO_VARIANT = {"Ghat": "Ghat-2-1.0000"}
+
+
+ALGO_VARIANT = {"Ghat": ("Ghat-2-1.0000", "Ghat-1.0000")}
 FAMILY_GLOBS = {
     "Twitter": ["result/twitter/*_result.txt"],
     "Meta KV": ["result/meta-key/*_result.txt"],
@@ -236,7 +237,7 @@ def main():
         or sys.argv[1] not in MODE_CONFIG
         or (len(sys.argv) == 3 and sys.argv[2] not in METRIC_LABEL)
     ):
-        sys.exit(f"usage: {sys.argv[0]} <kv|cdn> [object|byte]")
+        sys.exit(f"usage: {sys.argv[0]} <kv|cdn|block> [object|byte]")
 
     mode = sys.argv[1]
     config = MODE_CONFIG[mode]

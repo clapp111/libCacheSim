@@ -31,6 +31,12 @@ def resolve_family_files(family, family_globs):
 
 
 def parse_result_file(path, algo_variants):
+    """Yield (trace, size, algo, miss_ratio, byte_miss_ratio) rows.
+
+    algo_variants maps a base algorithm name to the collection of raw cache
+    names accepted for it; rows carrying any other variant of that base name
+    are skipped.
+    """
     with open(path) as f:
         for line in f:
             match = LINE_RE.match(line.strip())
@@ -38,6 +44,6 @@ def parse_result_file(path, algo_variants):
                 continue
             trace, size, algo_raw, mr, bmr = match.groups()
             algo = algo_raw.split("-")[0]
-            if algo in algo_variants and algo_raw != algo_variants[algo]:
+            if algo in algo_variants and algo_raw not in algo_variants[algo]:
                 continue
             yield trace, size, algo, float(mr), float(bmr)
