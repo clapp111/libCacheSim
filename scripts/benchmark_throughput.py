@@ -68,7 +68,9 @@ def parse_perf_stat(perf_stat_output: str) -> Dict[str, float]:
         "cpu_migrations": r"([\d\.]+)\s+cpu-migrations",
         "cpu_cycles": r"([\d,\.]+)\s+cpu_core/cpu-cycles/",
         "instructions": r"([\d,\.]+)\s+cpu_core/instructions/",
-        "req_cnt": r"([\d]+)\s+req,",
+        # anchor on the result line; cache.c's "%ld req, obj ... larger than
+        # cache size" warning also matches a bare "N req," and is printed first
+        "req_cnt": r"([\d]+)\s+req, miss ratio",
         "elapsed_time_sec": r"([\d\.]+)\s+seconds time elapsed",
         "user_time_sec": r"([\d\.]+)\s+seconds user",
         "sys_time_sec": r"([\d\.]+)\s+seconds sys"
