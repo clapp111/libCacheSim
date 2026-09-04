@@ -67,9 +67,11 @@ fi
 
 OUT="$RESULT_DIR/${SCENARIO}_cachesize_robustness.csv"
 
-# label|eviction_algo|eviction_params -- same naming as run_shift_ghat_variants.sh
+# label|eviction_algo|eviction_params -- same naming as run_shift_ghat_variants.sh.
+# SIEVE is measured through Ghat with ghost off and threshold 1: the upstream
+# Sieve implementation reports no sweep counters, so scanTimeline rejects it.
 CONFIGS=(
-  "Sieve|Sieve|"
+  "Ghat-g0-t1|Ghat|protect-threshold=1,ghost-count-ratio=0"
   "Ghat-g1-t2|Ghat|protect-threshold=2"
   "Ghat-g0-t2|Ghat|protect-threshold=2,ghost-count-ratio=0"
 )
