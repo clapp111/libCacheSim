@@ -46,9 +46,9 @@ PLOT_ALGOS = ["Ghat-g0-t1", "Ghat-g0-t2", "Ghat-g1-t2"]
 # Ghat-g0-t1 is bit-for-bit identical to Sieve for policy behavior, but the
 # label keeps clear that the diagnostic data comes from the Ghat code path.
 DISPLAY_NAME = {
-    "Ghat-g0-t1": "SIEVE-equivalent",
-    "Ghat-g1-t2": "Ghat",
-    "Ghat-g0-t2": "Ghat(ghost=off)",
+    "Ghat-g0-t1": "Resident-only, τ=1",
+    "Ghat-g1-t2": "Ghost-assisted, τ=2",
+    "Ghat-g0-t2": "Resident-only, τ=2",
 }
 
 # Three-series palette validated pairwise for color-vision deficiencies and

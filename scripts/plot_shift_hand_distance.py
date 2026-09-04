@@ -45,9 +45,9 @@ PLOT_ALGOS = [
 ]
 
 DISPLAY_NAME = {
-    "Ghat-g0-t1": "SIEVE-equivalent",
-    "Ghat-g1-t2": "Ghat(ghost=on, τ=2)",
-    "Ghat-g0-t2": "Ghat(ghost=off, τ=2)",
+    "Ghat-g0-t1": "Resident-only, τ=1",
+    "Ghat-g1-t2": "Ghost-assisted, τ=2",
+    "Ghat-g0-t2": "Resident-only, τ=2",
 }
 
 # Matches plot_shift_mechanism.py so a configuration keeps one color across
@@ -205,8 +205,7 @@ def main():
         fontsize=9,
         color=MUTED_TEXT,
     )
-    fig.supylabel("Hand Position", fontsize=10)
-
+    fig.supylabel("Hand position", fontsize=10)
     # Panels are in PLOT_ALGOS order, so the legend entries are too; it names
     # the series once for the whole stack rather than per panel.
     fig.legend(
