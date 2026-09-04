@@ -21,12 +21,41 @@ static bool obj_id_in_range(const cache_obj_t *obj, void *ctx) {
   return obj->obj_id >= range->lo && obj->obj_id < range->hi;
 }
 
+/* How many objects of the target range the cache still holds -- the
+ * retention left after a scan has swept through.
+ *
+ * Walking cache->hashtable would be both wrong and not portable: ARC leaves
+ * its B1/B2 ghost entries in that table (it evicts with
+ * remove_from_hashtable=false and marks them obj->ARC.ghost), while S3FIFO
+ * and LIRS keep no objects there at all -- theirs live in sub-caches. The
+ * one residency test every algorithm implements is its own find(), so the
+ * range is probed id by id instead. update_cache=false keeps the probe
+ * side-effect-free: each find confines its mutations to the update_cache
+ * branch, and for the ghost-bearing algorithms it is also what separates a
+ * cached object from a ghost entry.
+ *
+ * This costs hi - lo lookups, which is why the caller runs it on a single
+ * window rather than on every one. */
+static int64_t count_target_resident(cache_t *cache, const id_range_t *range) {
+  request_t *probe = new_request();
+  int64_t n_resident = 0;
+  for (obj_id_t id = range->lo; id < range->hi; id++) {
+    probe->obj_id = id;
+    if (cache->find(cache, probe, false) != NULL) {
+      n_resident++;
+    }
+  }
+  free_request(probe);
+  return n_resident;
+}
+
 /* One CSV row per window. The protected-state columns are emitted only
  * when a target id range was given; algorithms with no notion of
  * protected objects report -1. */
 static void print_window(const char *algo, int64_t window_idx, int64_t win_req,
                          int64_t win_miss, const cache_t *cache,
-                         id_range_t *target, const int64_t *sweep_delta) {
+                         id_range_t *target, int64_t n_target_resident,
+                         const int64_t *sweep_delta) {
   printf("%s,%ld,%ld,%ld,%.4f", algo, (long)window_idx, (long)win_req,
          (long)win_miss, (double)win_miss / (double)win_req);
 
@@ -37,8 +66,9 @@ static void print_window(const char *algo, int64_t window_idx, int64_t win_req,
       n_target_protected =
           cache->get_n_protected(cache, obj_id_in_range, target);
     }
-    printf(",%ld,%ld,%ld", (long)cache->get_n_obj(cache), (long)n_protected,
-           (long)n_target_protected);
+    printf(",%ld,%ld,%ld,%ld", (long)cache->get_n_obj(cache),
+           (long)n_protected, (long)n_target_protected,
+           (long)n_target_resident);
   }
 
   if (sweep_delta != NULL) {
@@ -47,6 +77,16 @@ static void print_window(const char *algo, int64_t window_idx, int64_t win_req,
   }
 
   printf("\n");
+}
+
+/* count_target_resident on the one requested window, -1 everywhere else. */
+static int64_t resident_count_for(cache_t *cache, const id_range_t *target,
+                                  int64_t resident_window,
+                                  int64_t window_idx) {
+  if (target == NULL || window_idx != resident_window) {
+    return -1;
+  }
+  return count_target_resident(cache, target);
 }
 
 /* Turns the cache's cumulative sweep counters into this window's delta. */
@@ -71,13 +111,23 @@ int main(int argc, char **argv) {
   if (argc < 6) {
     fprintf(stderr,
             "usage: %s trace_path trace_type eviction_algo cache_size "
-            "window_size [eviction_params] [target_id_range] [sweep]\n"
+            "window_size [eviction_params] [target_id_range] [sweep] "
+            "[resident_window]\n"
             "  trace_type: only txt is supported\n"
             "  target_id_range: lo:hi, half-open; adds the columns\n"
-            "                   n_obj,n_protected,n_target_protected\n"
+            "                   n_obj,n_protected,n_target_protected,"
+            "n_target_resident\n"
             "  sweep: literal \"sweep\"; adds per-window columns\n"
             "         n_demote,n_evict,n_hand_wrap,hand_distance "
-            "(hand-sweep algorithms only)\n",
+            "(hand-sweep algorithms only)\n"
+            "  resident_window: window index at which to count the target\n"
+            "         range's resident objects into n_target_resident; the\n"
+            "         column is -1 on every other window. Needs\n"
+            "         target_id_range. One window only -- the count probes\n"
+            "         the whole range, so it is far more expensive than the\n"
+            "         other columns.\n"
+            "  pass \"\" for an earlier optional argument to reach a later "
+            "one\n",
             argv[0]);
     return 1;
   }
@@ -90,10 +140,16 @@ int main(int argc, char **argv) {
   const char *eviction_params = argc > 6 ? argv[6] : NULL;
   const char *target_id_range = argc > 7 ? argv[7] : NULL;
   const bool want_sweep = argc > 8 && strcasecmp(argv[8], "sweep") == 0;
+  /* -1 disables the count; window indices start at 0 */
+  const int64_t resident_window =
+      (argc > 9 && argv[9][0] != '\0') ? strtoll(argv[9], NULL, 10) : -1;
 
   /* let callers pass "" for eviction_params when they only want the range */
   if (eviction_params != NULL && eviction_params[0] == '\0') {
     eviction_params = NULL;
+  }
+  if (target_id_range != NULL && target_id_range[0] == '\0') {
+    target_id_range = NULL;
   }
 
   id_range_t target;
@@ -108,6 +164,11 @@ int main(int argc, char **argv) {
     target.lo = strtoull(target_id_range, NULL, 10);
     target.hi = strtoull(sep + 1, NULL, 10);
     target_ptr = &target;
+  }
+
+  if (resident_window >= 0 && target_ptr == NULL) {
+    fprintf(stderr, "resident_window needs a target_id_range\n");
+    return 1;
   }
 
   if (strcasecmp(trace_type_str, "txt") != 0) {
@@ -143,7 +204,7 @@ int main(int argc, char **argv) {
 
   printf("algo,window_idx,req_in_window,miss_in_window,miss_ratio");
   if (target_ptr != NULL) {
-    printf(",n_obj,n_protected,n_target_protected");
+    printf(",n_obj,n_protected,n_target_protected,n_target_resident");
   }
   if (want_sweep) {
     printf(",n_demote,n_evict,n_hand_wrap,hand_distance");
@@ -159,7 +220,9 @@ int main(int argc, char **argv) {
     if (win_req == window_size) {
       update_sweep_delta(cache, want_sweep, prev_sweep, sweep_delta);
       print_window(eviction_algo, window_idx, win_req, win_miss, cache,
-                   target_ptr, sweep_ptr);
+                   target_ptr, resident_count_for(cache, target_ptr,
+                                                  resident_window, window_idx),
+                   sweep_ptr);
       window_idx++;
       win_req = 0;
       win_miss = 0;
@@ -169,7 +232,9 @@ int main(int argc, char **argv) {
   if (win_req > 0) {
     update_sweep_delta(cache, want_sweep, prev_sweep, sweep_delta);
     print_window(eviction_algo, window_idx, win_req, win_miss, cache,
-                 target_ptr, sweep_ptr);
+                 target_ptr, resident_count_for(cache, target_ptr,
+                                                resident_window, window_idx),
+                 sweep_ptr);
   }
 
   free_request(req);

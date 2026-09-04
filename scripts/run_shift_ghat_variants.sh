@@ -96,7 +96,7 @@ run_scenario() {
         "$params" "$target_range" sweep 2>/dev/null \
         | tail -n +2 \
         | awk -F, -v OFS=, -v rep="$rep" -v label="$label" \
-              '{print label, rep, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11}' \
+              '{print label, rep, $2, $3, $4, $5, $6, $7, $8, $10, $11, $12}' \
         >> "$csv"
     done
     echo "  variants: rep $rep/$N_REPS done"

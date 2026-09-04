@@ -88,7 +88,7 @@ echo "=== $out (cache=$CACHE, window=$WINDOW, target=$TARGET_RANGE) ==="
       | awk -F, -v OFS=, -v label="$label" -v rep="$REP" \
             -v lo="$REQ_LO" -v hi="$REQ_HI" \
             '$2 >= lo && $2 <= hi {
-               print label, rep, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+               print label, rep, $2, $3, $4, $5, $6, $7, $8, $10, $11, $12, $13
              }'
   done
 } > "$out.tmp"
