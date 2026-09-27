@@ -43,11 +43,14 @@ PLOT_ALGOS = [
     "Ghat-g1-t2",
 ]
 
+# "Ghost" rather than "Ghost queue" so the legend names the factor exactly as
+# the tables' column head does, and so the two factors read as a parallel pair
+# next to tau. The tau term is mathtext, matching the body's $\tau=1$.
 DISPLAY_NAME = {
-    "Ghat-g0-t1": "Ghost queue = off, τ=1",
-    "Ghat-g0-t2": "Ghost queue = off, τ=2",
-    "Ghat-g1-t1": "Ghost queue = on, τ=1",
-    "Ghat-g1-t2": "Ghost queue = on, τ=2",
+    "Ghat-g0-t1": r"Ghost = off, $\tau=1$",
+    "Ghat-g0-t2": r"Ghost = off, $\tau=2$",
+    "Ghat-g1-t1": r"Ghost = on, $\tau=1$",
+    "Ghat-g1-t2": r"Ghost = on, $\tau=2$",
 }
 
 # The four configs are a 2x2, so each factor gets its own visual channel: the
