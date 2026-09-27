@@ -8,12 +8,12 @@ Input:
   result/shift/<scenario>_ghat_hand_distance_rep83.csv
 
 Output:
-  result/shift/<scenario>_ghat_hand_distance_rep83.png
+  result/shift/<scenario>_ghat_hand_distance_rep83.pdf
 
 One panel per configuration, sharing an x axis, each showing the next hand
 position in the current queue, normalized so that tail=0 and head=1. One
 series per panel keeps the flat trajectory readable, which overlaying all
-three did not. This is a single-repetition diagnostic figure; it is not an
+four did not. This is a single-repetition diagnostic figure; it is not an
 aggregate over repetitions.
 """
 
@@ -32,35 +32,63 @@ RESULT_DIR = Path(__file__).resolve().parent.parent / "result" / "shift"
 LAST_PRE_SHIFT_IDX = 199_999
 REQUEST_LO = -5_000
 REQUEST_HI = 60_000
-# Trace repetition this figure is drawn from. run_shift_hand_distance.sh
-# writes it into both the file names and the CSV's rep column.
 REP = 83
 
-# Panel order top to bottom: baseline, the configuration that stalls, the
-# configuration that recovers.
+# ghost off/on x tau 1/2; this is also the panel order, grouped by ghost so
+# it matches the grey levels below
 PLOT_ALGOS = [
     "Ghat-g0-t1",
     "Ghat-g0-t2",
+    "Ghat-g1-t1",
     "Ghat-g1-t2",
 ]
 
 DISPLAY_NAME = {
-    "Ghat-g0-t1": "Resident-only, τ=1",
-    "Ghat-g1-t2": "Ghost-assisted, τ=2",
-    "Ghat-g0-t2": "Resident-only, τ=2",
+    "Ghat-g0-t1": "Ghost queue = off, τ=1",
+    "Ghat-g0-t2": "Ghost queue = off, τ=2",
+    "Ghat-g1-t1": "Ghost queue = on, τ=1",
+    "Ghat-g1-t2": "Ghost queue = on, τ=2",
 }
 
-# Matches plot_shift_mechanism.py so a configuration keeps one color across
-# figures. With one series per panel the color is a redundant encoding.
-ALGO_COLOR = {
-    "Ghat-g0-t1": "#eb6834",
-    "Ghat-g1-t2": "#4a3aa7",
-    "Ghat-g0-t2": "#2a78d6",
-}
+# Same encoding as plot_shift_mechanism.py -- the two figures show the same
+# four configurations and a reader should be able to carry the mapping across:
+# the ghost queue is grey level plus line width, tau is the dash pattern. See
+# that script for the reasoning behind each constant. The widths are lower and
+# the dash longer than there because these panels are short and the traces are
+# dense step functions, which a heavy line or a tight dash smears.
+GHOST_STYLE = {"g0": ("#8a8a8a", 0.8), "g1": ("#000000", 1.3)}
+DASH_WIDTH_BUMP = 0.2
+DASH_POINTS = (4.0, 2.0)
 
 GRID_COLOR = "#e5e5e5"
-RULE_COLOR = "#898781"
-MUTED_TEXT = "#666666"
+
+# Camera-ready figure box, in millimetres.
+FIG_MM = (85.29, 49.15)
+MM_PER_INCH = 25.4
+
+# The line weights above were tuned on a 7 in wide draft that LaTeX then shrank
+# to the column, and that shrink scaled the ink along with it. The figure is
+# now emitted at its final size, so nothing scales it any more and the
+# point-valued line geometry has to be scaled here instead -- otherwise every
+# stroke lands on the page about twice as heavy as it used to.
+DRAFT_WIDTH_IN = 7.0
+SCALE = (FIG_MM[0] / MM_PER_INCH) / DRAFT_WIDTH_IN
+
+# Matches plot_shift_mechanism.py, so the two shift figures set type at the
+# same size. Point sizes are absolute and do not scale with the figure.
+RC = {
+    "font.size": 7,
+    "axes.labelsize": 7,
+    # supylabel reads figure.labelsize, not axes.labelsize, and that defaults
+    # to "large" -- it does not follow the shrink unless it is named here.
+    "figure.labelsize": 7,
+    "xtick.labelsize": 6,
+    "ytick.labelsize": 6,
+    "legend.fontsize": 6,
+    # Type 3 fonts are rejected by several publishers' PDF checks; 42 is
+    # TrueType.
+    "pdf.fonttype": 42,
+}
 
 
 def parse_args():
@@ -147,10 +175,24 @@ def validate_data(data):
             )
 
 
+def algo_style(algo):
+    """(colour, linestyle, linewidth) for a Ghat-g<ratio>-t<threshold> label."""
+    _, ghost, tau = algo.split("-")
+    color, linewidth = GHOST_STYLE[ghost]
+    if tau == "t1":
+        return color, "solid", linewidth * SCALE
+    linewidth += DASH_WIDTH_BUMP
+    # Divided by the *unscaled* width so that matplotlib, which multiplies the
+    # dash tuple by the scaled width it is finally drawn with, lands on
+    # DASH_POINTS * SCALE -- the dash shrinks with the stroke, as it did when
+    # LaTeX was doing the shrinking.
+    dashes = tuple(length / linewidth for length in DASH_POINTS)
+    return color, (0, dashes), linewidth * SCALE
+
+
 def style_axis(ax):
-    ax.axvline(0, color=RULE_COLOR, linewidth=0.8, linestyle="--", zorder=1)
     ax.set_axisbelow(True)
-    ax.grid(axis="both", color=GRID_COLOR, linewidth=0.6, zorder=0)
+    ax.grid(axis="both", color=GRID_COLOR, linewidth=0.6 * SCALE, zorder=0)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
 
@@ -158,7 +200,7 @@ def style_axis(ax):
 def main():
     args = parse_args()
     input_path = RESULT_DIR / f"{args.scenario}_ghat_hand_distance_rep{REP}.csv"
-    output_path = RESULT_DIR / f"{args.scenario}_ghat_hand_distance_rep{REP}.png"
+    output_path = RESULT_DIR / f"{args.scenario}_ghat_hand_distance_rep{REP}.pdf"
 
     if not input_path.is_file():
         print(f"missing input: {input_path}", file=sys.stderr)
@@ -171,10 +213,11 @@ def main():
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    plt.rcParams.update(RC)
     fig, axes = plt.subplots(
         len(PLOT_ALGOS),
         1,
-        figsize=(7, 4),
+        figsize=tuple(mm / MM_PER_INCH for mm in FIG_MM),
         sharex=True,
         sharey=True,
     )
@@ -183,12 +226,14 @@ def main():
     for ax, algo in zip(axes, PLOT_ALGOS):
         x = np.asarray(data[algo]["x"])
         hand_position = np.asarray(data[algo]["hand_position"])
+        color, linestyle, linewidth = algo_style(algo)
         line, = ax.step(
             x,
             hand_position,
             where="post",
-            color=ALGO_COLOR[algo],
-            linewidth=0.8,
+            color=color,
+            linestyle=linestyle,
+            linewidth=linewidth,
             label=DISPLAY_NAME[algo],
         )
         handles.append(line)
@@ -196,28 +241,22 @@ def main():
 
     axes[0].set_ylim(-0.04, 1.04)
     axes[0].set_yticks([0, 1], labels=["Tail", "Head"])
-    axes[0].annotate(
-        "shift",
-        xy=(0, 1.0),
-        xycoords=("data", "axes fraction"),
-        xytext=(4, -10),
-        textcoords="offset points",
-        fontsize=9,
-        color=MUTED_TEXT,
-    )
-    fig.supylabel("Hand position", fontsize=10)
+    fig.supylabel("Hand position")
     # Panels are in PLOT_ALGOS order, so the legend entries are too; it names
-    # the series once for the whole stack rather than per panel.
+    # the series once for the whole stack rather than per panel. Four entries
+    # on one row overflow the column width, so two columns of two.
     fig.legend(
         handles,
         [h.get_label() for h in handles],
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.0),
+        bbox_to_anchor=(0.55, 1.01),
         frameon=False,
-        fontsize=9,
-        ncol=len(PLOT_ALGOS),
-        handlelength=1.6,
-        columnspacing=1.8,
+        ncol=2,
+        handlelength=1.8,
+        columnspacing=1.0,
+        handletextpad=0.5,
+        labelspacing=0.25,
+        borderpad=0.0,
     )
 
     bottom_ax = axes[-1]
@@ -226,8 +265,12 @@ def main():
     bottom_ax.xaxis.set_major_formatter(FuncFormatter(format_requests))
     bottom_ax.set_xlabel("Requests since the shift")
 
-    fig.tight_layout(rect=(0, 0, 1, 0.95), h_pad=0.4)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    # rect reserves the top strip for the legend. Note there is no
+    # bbox_inches="tight" on the savefig below, on purpose: that option
+    # re-crops the canvas to its contents and would silently discard the
+    # FIG_MM box this figure exists to hit.
+    fig.tight_layout(rect=(0, 0, 1, 0.90), h_pad=0.4)
+    fig.savefig(output_path)
     plt.close(fig)
 
     print(f"saved: {output_path}")
